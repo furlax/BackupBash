@@ -1,0 +1,143 @@
+#!/bin/bash
+# ------------------------------------------------------------------------------
+# Ce script consiste à mettre en place un environnement permettant d'effectuer 
+# à intervalles réguliers la sauvegarde de plusieurs partitions ext4 sous Linux. 
+#
+#
+# Ce script n'a pas besoin de paramètre 
+#
+# ------------- Travail effectué par Luca, Karafil et Antonio ------------------
+# 
+# Constante 
+#
+# Variable qui definit le temps X jours pour la suppression des logs 
+typeset -i time=30
+#
+# Notre script commence avec le montage du disque
+
+typeset -r mnt_sg="/mnt/sauvegarde"
+
+typeset -r fichier_du_log=${mnt_sg}/dumplog.log
+
+mount ${mnt_sg}
+mount_cd=$?
+
+if [[ ${mount_cd} -ne "0" ]]
+then
+	echo "Erreur ${mnt_sg} ne peut pas etre monter" >> ${fichier_du_log} 2>&1
+	exit 1
+fi
+
+# ------------------------- FONCTIONS --------------------------------------------
+
+# Cette fonction calcule le niveau de sauvegarde par rapport a la date. 
+# ------------ Cette fonction n'a besoin d'aucun parametre.------------
+determination_numero_sem()
+{
+  #Cette variable contient le numéro du jour
+  typeset -i jour_sem=$((`date +%u`))
+  #Cette variable contient le numéro de la semaine dans le mois
+  typeset -i semaine_num=$(( $((`date +%V`-1)) % 4 ))
+  # numéro
+  typeset -i numero=0
+
+  #Si le jour correspond au 1er jour de la 1ère semaine
+  if [ $jour_sem -ge 1 ] && [ $semaine_num -ge 0 ]
+  then
+  numero=0
+  #Si ce n'est pas le cas alors on fait les vérifications suivantes :
+  else
+    #If (1er semaine du mois)
+    if [ $semaine_num -ge 0 ]
+    then
+      numero=1
+    #If (2ème semaine du mois)
+    elif [ $semaine_num -ge 1 ]
+    then
+      numero=2
+    #If (3ème semaine du mois)
+    elif [ $semaine_num -ge 2 ]
+    then
+      numero=3
+    #If (4ème semaine du mois)
+    elif [ $semaine_num -ge 3 ]
+    then
+      numero=4
+    fi
+  fi
+  # On retourne le niveau de valeur 
+  return $numero
+}
+
+# ------------------------------------------------------------------------------
+
+determination_numero_sem
+determ_num=$?
+ 
+#On récupère la date de la sauvegarde 
+typeset -r sg_date_bu=`date +%F`
+
+#Le chemin vers sauvegarde 
+typeset -r ra_slash="/ /opt"
+
+#chemin du programme Dump
+typeset -r chemin_dump="/sbin/dump"
+ 
+ 
+typeset -r dtory_lg="${mnt_sg}/log/${sg_date_bu}"
+
+#On crée un répertoire s'il n'existe pas.
+if [ ! -d ${mnt_sg} ]
+then
+  mkdir -p ${mnt_sg}
+  #Si la création ne peut pas se faire alors :
+    cdMkdir=$?
+    if [ ${cdMkdir} -ge 1 ]
+    then
+      echo "Aucune création de répertoire n'a pu être faite."
+      exit 1
+    fi
+fi
+ 
+#Nous allons maintenant procéder à une boucle afin d'effectuer la sauvegarde
+for i in ${ra_slash} ;
+do
+  if [ ! -d ${mnt_sg}/${sg_date_bu} ]
+  then
+    mkdir ${mnt_sg}/${sg_date_bu}
+    #si le répértoire ne peut pas se créer alors :
+    cdMkdir=$?
+    if [ !${cdMkdir} -ge 1 ]
+    then
+      echo "Création du répertoire réussi."
+    else
+      echo "Nous n'avons pas pu créer le répértoire contenant la sauvegarde du ${sg_date_bu}"
+      exit 1
+    fi
+  fi
+  touch ${fichier_du_log}
+  if [ ! $i = "/home" ]
+  then
+    Nomi="${i##*/home}"
+  elif  [$i = "/home"]
+  then  
+    Nomi="root"
+  fi
+
+  "${chemin_dump}" -$determ_num -u -b 1024 -f "${mnt_sg}/${sg_date_bu}/${Nomi}_${determ_num}determination_numero_sem_dump.dump" ${i} >> ${fichier_du_log} 2>&1
+    dump_cd=$?
+    
+    #On controle si il y a un probleme avec dump
+    if [[ ${dump_cd} -ne "0" ]]
+    then 
+	  echo "Le dump${determ_num} a echoue" >> ${fichier_du_log} 2>&1
+    fi	
+done
+
+# On demonte le repertoire apres avoir effectue la sauvegarde
+umount ${mnt_sg}
+
+#On supprime les anciens fichiers logs qui sont depasses de 30jours
+find -name "{fichier_du_log}" -type f -mtime +30 -exec rm {} + 
+
+
